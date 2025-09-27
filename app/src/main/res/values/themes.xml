@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+
+<resources>
+<!-- Valid Material3 XML theme parent -->
+<style name="Theme.Personalexpensetracker" parent="Theme.Material3.DayNight">
+    <!-- Compose doesn't need an ActionBar; no extra attrs required -->
+    <item name="android:statusBarColor">@android:color/transparent</item>
+</style>
+</resources>
