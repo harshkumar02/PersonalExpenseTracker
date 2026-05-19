@@ -13,8 +13,10 @@ data class TransactionEntity(
     val merchant: String?,
     val amount: Double,
     val currency: String = "INR",
-    val accountHint: String?,
+    val accountHint: String?,    // Raw card/account number from SMS
     val rawText: String,
     val category: String,
-    val confidence: Int = 90
+    val confidence: Int = 90,
+    val accountId: Long? = null, // Linked account (null = auto-detect or unknown)
+    val isTransfer: Boolean = false // True if detected as transfer between own accounts
 )

@@ -21,20 +21,22 @@ android {
 
     // ✅ Use Java 21 everywhere (matches your JBR 21 Gradle JDK)
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "21" }
+    kotlinOptions { jvmTarget = "17" }
 }
 
 kotlin {
-    // ✅ Pin toolchain to 21
-    jvmToolchain(21)
+    jvmToolchain(17)
+    compilerOptions {
+        freeCompilerArgs.add("-opt-in=androidx.compose.material3.ExperimentalMaterial3Api")
+    }
 }
 
 dependencies {
     // Compose BOM
-    implementation(platform("androidx.compose:compose-bom:2025.01.00"))
+    implementation(platform("androidx.compose:compose-bom:2024.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -44,8 +46,6 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
 
-    implementation("androidx.activity:activity-compose:1.9.3")
-
 // Room
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
@@ -54,11 +54,6 @@ dependencies {
     // Lifecycle
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.6")
-
-    // Room
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    kapt("androidx.room:room-compiler:2.6.1")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
@@ -73,5 +68,6 @@ dependencies {
 
     // Jetpack Compose Navigation
     implementation("androidx.navigation:navigation-compose:2.8.3")
+    implementation("androidx.compose.material:material-icons-extended:1.7.8")
 
 }
