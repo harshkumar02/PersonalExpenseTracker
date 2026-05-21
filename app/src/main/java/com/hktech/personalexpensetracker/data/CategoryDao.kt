@@ -20,6 +20,12 @@ interface CategoryDao {
     @Query("DELETE FROM categories WHERE name = :name")
     suspend fun deleteByName(name: String)
 
+    @Query("DELETE FROM categories")
+    suspend fun deleteAll()
+
     @Query("SELECT COUNT(*) FROM categories")
     suspend fun count(): Int
+
+    @Query("SELECT * FROM categories ORDER BY name ASC")
+    suspend fun getAllList(): List<CategoryEntity>
 }

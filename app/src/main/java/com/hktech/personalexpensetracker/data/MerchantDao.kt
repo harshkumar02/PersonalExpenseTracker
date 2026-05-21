@@ -26,6 +26,9 @@ interface MerchantDao {
     @Query("DELETE FROM merchants WHERE name = :name")
     suspend fun deleteByName(name: String)
 
+    @Query("DELETE FROM merchants")
+    suspend fun deleteAll()
+
     @Query("SELECT * FROM merchants WHERE :keyword LIKE '%' || LOWER(name) || '%' OR :keyword LIKE '%' || LOWER(aliases) || '%' LIMIT 1")
     suspend fun findByKeyword(keyword: String): MerchantEntity?
 }

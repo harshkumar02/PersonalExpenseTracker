@@ -114,4 +114,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun deletePaymentChannel(code: String) = viewModelScope.launch {
         channelDao.deleteByCode(code)
     }
+
+    fun updateTransaction(id: Long, amount: Double, direction: String, merchant: String?, channel: String?) = viewModelScope.launch {
+        dao.updateTransaction(id, amount, direction, merchant, channel)
+    }
 }

@@ -48,6 +48,7 @@ dependencies {
 
 // Room
     implementation("androidx.room:room-runtime:2.6.1")
+    kapt("androidx.room:room-compiler:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
 
@@ -70,4 +71,9 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.3")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
 
+    // Google Sign-In for backup
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
+
+    // Gson for JSON serialization
+    implementation("com.google.code.gson:gson:2.10.1")
 }

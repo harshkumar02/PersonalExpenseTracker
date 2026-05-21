@@ -1,21 +1,29 @@
 package com.hktech.personalexpensetracker.ui.navigation
 
+import android.content.Context
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.Assessment
+import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.*
-import com.hktech.personalexpensetracker.Screen
+import com.hktech.personalexpensetracker.backup.BackupManager
+import com.hktech.personalexpensetracker.backup.BackupScreen
+import com.hktech.personalexpensetracker.backup.GoogleDriveService
 import com.hktech.personalexpensetracker.data.AccountEntity
 import com.hktech.personalexpensetracker.data.CategoryEntity
 import com.hktech.personalexpensetracker.data.MerchantEntity
@@ -24,11 +32,13 @@ import com.hktech.personalexpensetracker.data.TransactionEntity
 import com.hktech.personalexpensetracker.ui.AccountManagementContent
 import com.hktech.personalexpensetracker.ui.AddTransactionFab
 import com.hktech.personalexpensetracker.ui.charts.SummarySection
+import com.hktech.personalexpensetracker.ui.transactions.TransactionScreen
 
 sealed class ScreenNav(val route: String, val label: String, val selectedIcon: ImageVector, val unselectedIcon: ImageVector) {
     object Transactions : ScreenNav("transactions", "Transactions", Icons.Filled.Home, Icons.Outlined.Home)
     object Summary : ScreenNav("summary", "Summary", Icons.Filled.Assessment, Icons.Outlined.Assessment)
     object Accounts : ScreenNav("accounts", "Accounts", Icons.Filled.AccountBalanceWallet, Icons.Outlined.AccountBalanceWallet)
+    object Backup : ScreenNav("backup", "Backup", Icons.Filled.Backup, Icons.Outlined.Backup)
 }
 
 @Composable
@@ -40,6 +50,7 @@ fun AppNav(
     paymentChannels: List<PaymentChannelEntity>,
     onChangeCategory: (Long, String) -> Unit,
     onDeleteTransaction: (Long) -> Unit,
+    onUpdateTransaction: (Long, Double, String, String?, String?) -> Unit,
     onAddTransaction: (TransactionEntity) -> Unit,
     onAddCategory: (CategoryEntity) -> Unit,
     onDeleteCategory: (String) -> Unit,
@@ -52,7 +63,12 @@ fun AppNav(
     onDeletePaymentChannel: (String) -> Unit
 ) {
     val navController = rememberNavController()
-    val items = listOf(ScreenNav.Transactions, ScreenNav.Summary, ScreenNav.Accounts)
+    val items = listOf(ScreenNav.Transactions, ScreenNav.Summary, ScreenNav.Accounts, ScreenNav.Backup)
+
+    // Initialize backup services
+    val context = LocalContext.current
+    val backupManager = remember { BackupManager(context) }
+    val googleDriveService = remember { GoogleDriveService(context) }
 
     Scaffold(
         topBar = {
@@ -64,6 +80,7 @@ fun AppNav(
                             ScreenNav.Transactions.route -> "My Transactions"
                             ScreenNav.Summary.route -> "Summary"
                             ScreenNav.Accounts.route -> "Accounts"
+                            ScreenNav.Backup.route -> "Backup"
                             else -> "Expense Tracker"
                         }
                     )
@@ -129,12 +146,15 @@ fun AppNav(
             modifier = Modifier.padding(innerPadding)
         ) {
             composable(ScreenNav.Transactions.route) {
-                Screen(
+                TransactionScreen(
                     txns = txns,
                     allCategories = categories,
                     accounts = accounts,
                     onChangeCategory = onChangeCategory,
-                    onDeleteTransaction = onDeleteTransaction
+                    onDeleteTransaction = onDeleteTransaction,
+                    onUpdateTransaction = { id, amount, direction, merchant, channel ->
+                        onUpdateTransaction(id, amount, direction, merchant, channel)
+                    }
                 )
             }
             composable(ScreenNav.Summary.route) {
@@ -146,6 +166,14 @@ fun AppNav(
                     onAddAccount = onAddAccount,
                     onUpdateAccount = onUpdateAccount,
                     onDeleteAccount = onDeleteAccount
+                )
+            }
+            composable(ScreenNav.Backup.route) {
+                BackupScreen(
+                    backupManager = backupManager,
+                    googleDriveService = googleDriveService,
+                    onBackupComplete = { },
+                    onRestoreComplete = { }
                 )
             }
         }

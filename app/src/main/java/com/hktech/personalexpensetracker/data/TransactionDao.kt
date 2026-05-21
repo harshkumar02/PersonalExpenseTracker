@@ -22,4 +22,10 @@ interface TransactionDao {
 
     @Query("DELETE FROM transactions WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM transactions")
+    suspend fun deleteAll()
+
+    @Query("UPDATE transactions SET amount = :amount, direction = :direction, merchant = :merchant, channel = :channel WHERE id = :id")
+    suspend fun updateTransaction(id: Long, amount: Double, direction: String, merchant: String?, channel: String?)
 }

@@ -22,4 +22,7 @@ interface PaymentChannelDao {
 
     @Query("DELETE FROM payment_channels WHERE code = :code")
     suspend fun deleteByCode(code: String)
+
+    @Query("DELETE FROM payment_channels")
+    suspend fun deleteAll()
 }
