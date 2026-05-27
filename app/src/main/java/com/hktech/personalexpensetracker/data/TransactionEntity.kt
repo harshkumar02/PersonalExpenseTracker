@@ -1,9 +1,19 @@
 package com.hktech.personalexpensetracker.data
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "transactions")
+@Entity(
+    tableName = "transactions",
+    indices = [
+        Index(value = ["ts"]),
+        Index(value = ["direction"]),
+        Index(value = ["accountId"]),
+        Index(value = ["category"]),
+        Index(value = ["accountHint"])
+    ]
+)
 data class TransactionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val ts: Long,

@@ -40,9 +40,9 @@ val CategoryColors: Map<String, Color> = mapOf(
     "Rent" to Color(0xFFA1887F),
     "Education" to Color(0xFF7986CB),
     "Transfers" to Color(0xFF90A4AE),
-    "Income" to Color(0xFF81C784),
+    "Income" to Color(0xFF388E3C), // Darker green for Income
     "Wallet" to Color(0xFFFFD54F),
-    "UPI" to Color(0xFF9575CD),
+    "UPI" to Color(0xFFFF8CFF),
     "Uncategorized" to Color(0xFFBDBDBD)
 ).withDefault { Color(0xFFBDBDBD) }
 

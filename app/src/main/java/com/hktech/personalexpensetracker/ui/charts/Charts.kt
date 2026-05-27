@@ -358,7 +358,6 @@ private fun DailyBarChart(data: Map<LocalDate, Float>) {
                 axisRight.isEnabled = false
                 axisLeft.textSize = 10f
                 setFitBars(true)
-                animateY(500)
                 legend.isEnabled = false
             }
         },

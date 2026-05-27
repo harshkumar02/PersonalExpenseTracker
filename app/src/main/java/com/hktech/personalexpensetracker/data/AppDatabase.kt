@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [TransactionEntity::class, CategoryEntity::class, MerchantEntity::class, AccountEntity::class, PaymentChannelEntity::class],
-    version = 7,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -67,6 +67,23 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // Migration from v7 to v8: Add indexes on transactions table
+        private val MIGRATION_7_TO_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_transactions_ts ON transactions(ts)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_transactions_direction ON transactions(direction)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_transactions_accountId ON transactions(accountId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_transactions_category ON transactions(category)")
+            }
+        }
+
+        // Migration from v8 to v9: Add accountHint index
+        private val MIGRATION_8_TO_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_transactions_accountHint ON transactions(accountHint)")
+            }
+        }
+
         fun get(ctx: Context): AppDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -74,7 +91,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "personal_expense_sms.db"
                 )
-                .addMigrations(MIGRATION_4_TO_7, MIGRATION_5_TO_7, MIGRATION_6_TO_7)
+                .addMigrations(MIGRATION_4_TO_7, MIGRATION_5_TO_7, MIGRATION_6_TO_7, MIGRATION_7_TO_8, MIGRATION_8_TO_9)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)

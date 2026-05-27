@@ -121,7 +121,7 @@ class BackupManager(private val context: Context) {
                     nickname = a.nickname,
                     accountType = a.accountType,
                     isActive = a.isActive,
-                    balance = a.currentBalance
+                    currentBalance = a.currentBalance
                 )
             },
             paymentChannels = channels.map { ch ->
@@ -171,7 +171,7 @@ class BackupManager(private val context: Context) {
                     nickname = account.nickname,
                     accountType = account.accountType,
                     isActive = account.isActive,
-                    currentBalance = account.balance
+                    currentBalance = account.currentBalance
                 ))
             }
 

@@ -48,7 +48,7 @@ data class AccountBackup(
     @SerializedName("nickname") val nickname: String,
     @SerializedName("accountType") val accountType: String,
     @SerializedName("isActive") val isActive: Boolean,
-    @SerializedName("balance") val balance: Double?
+    @SerializedName("currentBalance") val currentBalance: Double?
 )
 
 data class PaymentChannelBackup(

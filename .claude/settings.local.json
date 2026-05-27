@@ -44,7 +44,9 @@
       "Bash(JAVA_HOME=\"/c/Program Files/Eclipse Adoptium/jdk-17.0.19.10-hotspot\" ./gradlew clean assembleDebug)",
       "Bash(find F:/repos/PersonalExpenseTracker/app/src/main/res/mipmap-* -name \"*.png\" -o -name \"*.webp\")",
       "Bash(convert -size 48x48 xc:#4CAF50 F:/repos/PersonalExpenseTracker/app/src/main/res/mipmap-mdpi/ic_launcher.png)",
-      "Bash(powershell *)"
+      "Bash(powershell *)",
+      "Bash(adb logcat *)",
+      "Bash(adb shell *)"
     ]
   }
 }

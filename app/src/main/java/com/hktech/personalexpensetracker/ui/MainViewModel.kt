@@ -6,19 +6,20 @@ import androidx.lifecycle.viewModelScope
 import com.hktech.personalexpensetracker.data.*
 import com.hktech.personalexpensetracker.ingest.TransactionParser
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
-    private val dao = AppDatabase.get(app).txnDao()
-    private val categoryDao = AppDatabase.get(app).categoryDao()
-    private val merchantDao = AppDatabase.get(app).merchantDao()
-    private val accountDao = AppDatabase.get(app).accountDao()
-    private val channelDao = AppDatabase.get(app).paymentChannelDao()
+    // Cache database instance to avoid repeated get() calls
+    private val db = AppDatabase.get(app)
+    private val dao = db.txnDao()
+    private val categoryDao = db.categoryDao()
+    private val merchantDao = db.merchantDao()
+    private val accountDao = db.accountDao()
+    private val channelDao = db.paymentChannelDao()
 
+    // DAO already sorts by ts DESC, no in-memory sort needed
     val txns = dao.all()
-        .map { it.sortedByDescending { t -> t.ts } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val categories = categoryDao.getAll()
@@ -34,31 +35,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
-        // Load initial data into parser
+        // Load initial data into parser (filter out empty emissions from Flow)
         viewModelScope.launch {
-            // Get initial data immediately
-            val initialMerchants = merchantDao.getAllList()
-            TransactionParser.updateMerchants(initialMerchants)
-
-            val initialAccounts = accountDao.getAllList()
-            TransactionParser.updateAccounts(initialAccounts)
-
-            val initialChannels = channelDao.getAllList()
-            TransactionParser.updatePaymentChannels(initialChannels)
-
-            // Then continue collecting for updates
             merchants.collect { list ->
-                TransactionParser.updateMerchants(list)
+                if (list.isNotEmpty()) TransactionParser.updateMerchants(list)
             }
         }
         viewModelScope.launch {
             accounts.collect { list ->
-                TransactionParser.updateAccounts(list)
+                if (list.isNotEmpty()) TransactionParser.updateAccounts(list)
             }
         }
         viewModelScope.launch {
             paymentChannels.collect { list ->
-                TransactionParser.updatePaymentChannels(list)
+                if (list.isNotEmpty()) TransactionParser.updatePaymentChannels(list)
             }
         }
     }
@@ -77,6 +67,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun addCategory(category: CategoryEntity) = viewModelScope.launch {
         categoryDao.insert(category)
+    }
+
+    fun updateCategory(category: CategoryEntity) = viewModelScope.launch {
+        categoryDao.insert(category) // Room's REPLACE strategy handles updates
     }
 
     fun deleteCategory(name: String) = viewModelScope.launch {

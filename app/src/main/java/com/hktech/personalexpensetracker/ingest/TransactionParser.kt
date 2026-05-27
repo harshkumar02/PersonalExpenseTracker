@@ -1,10 +1,10 @@
 package com.hktech.personalexpensetracker.ingest
 
-import android.util.Log
 import com.hktech.personalexpensetracker.data.AccountEntity
 import com.hktech.personalexpensetracker.data.MerchantEntity
 import com.hktech.personalexpensetracker.data.PaymentChannelEntity
 import com.hktech.personalexpensetracker.data.TransactionEntity
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Base interface for all extractors
@@ -31,26 +31,35 @@ class AmountExtractor : TextExtractor<Double> {
     )
 
     override fun extract(text: String, norm: String): Double? {
-        // For "debited by" pattern - amount is AFTER this phrase
+        // Handle "Sent Rs.XX" pattern - amount comes AFTER "Sent"
+        if (norm.contains("sent")) {
+            val sentIndex = norm.indexOf("sent")
+            // Look from "sent" onwards for the amount
+            findAmountInArea(text, sentIndex, minOf(sentIndex + 150, text.length))?.let { return it }
+        }
+
+        // Handle "received Rs.XX" pattern
+        if (norm.contains("received")) {
+            val recvIndex = norm.indexOf("received")
+            findAmountInArea(text, recvIndex, minOf(recvIndex + 150, text.length))?.let { return it }
+        }
+
         if (norm.contains("debited by")) {
             val keywordIndex = norm.indexOf("debited by")
             findAmountInArea(text, keywordIndex, keywordIndex + 150)?.let { return it }
         }
 
-        // For "debited" alone - amount is BEFORE
         if (norm.contains("debited") && !norm.contains("debited by")) {
             val keywordIndex = norm.indexOf("debited")
             findAmountInArea(text, maxOf(0, keywordIndex - 100), keywordIndex)?.let { return it }
         }
 
-        // For "credited" patterns - look before and after
         if (norm.contains("credited")) {
             val keywordIndex = norm.indexOf("credited")
             findAmountInArea(text, maxOf(0, keywordIndex - 150), keywordIndex)?.let { return it }
             findAmountNearKeyword(text, "credited")?.let { return it }
         }
 
-        // Check patterns where amount comes BEFORE the keyword
         for (pattern in listOf("spent using", "paid to", "paid for")) {
             if (norm.contains(pattern)) {
                 val keywordIndex = norm.indexOf(pattern)
@@ -58,19 +67,16 @@ class AmountExtractor : TextExtractor<Double> {
             }
         }
 
-        // Try to find amount near other transaction keywords
         transactionKeywords.filter { it != "spent" && it != "credited" && it != "debited" }.forEach { keyword ->
             if (norm.contains(keyword)) {
                 findAmountNearKeyword(text, keyword)?.let { return it }
             }
         }
 
-        // Fallback: find first currency amount
         currencyFirstPattern.find(text)?.let {
             return it.groupValues[1].replace(",", "").toDoubleOrNull()
         }
 
-        // Last resort: find any large number with commas
         return commaNumberPattern.findAll(text)
             .mapNotNull { it.groupValues[1].replace(",", "").toDoubleOrNull() }
             .maxByOrNull { it }
@@ -78,22 +84,28 @@ class AmountExtractor : TextExtractor<Double> {
 
     private fun findAmountInArea(text: String, start: Int, end: Int): Double? {
         if (start >= end) return null
-        val searchArea = text.substring(start, end)
+        val safeEnd = minOf(end, text.length)
+        if (start >= safeEnd) return null
+        var searchArea = text.substring(start, safeEnd)
 
         currencyFirstPattern.find(searchArea)?.let {
             return it.groupValues[1].replace(",", "").toDoubleOrNull()
         }
-        return plainNumberPattern.find(searchArea)?.let {
-            val cleaned = it.groupValues[1].replace(",", "")
-            cleaned.toDoubleOrNull()
+        val cardSuffixPattern = Regex("""XX\s*[0-9]{4}""", RegexOption.IGNORE_CASE)
+        searchArea = cardSuffixPattern.replace(searchArea, "")
+
+        plainNumberPattern.find(searchArea)?.let { match ->
+            return match.groupValues[1].replace(",", "").toDoubleOrNull()
         }
+        return null
     }
 
     private fun findAmountNearKeyword(text: String, keyword: String): Double? {
         val keywordIndex = text.lowercase().indexOf(keyword)
         if (keywordIndex == -1) return null
 
-        val searchArea = text.substring(keywordIndex, minOf(keywordIndex + 100, text.length))
+        val endIndex = minOf(keywordIndex + 100, text.length)
+        val searchArea = text.substring(keywordIndex, endIndex)
 
         currencyFirstPattern.find(searchArea)?.let {
             return it.groupValues[1].replace(",", "").toDoubleOrNull()
@@ -161,10 +173,38 @@ class AccountDetector {
 }
 
 /**
+ * Handles recipient extraction for UPI transfers
+ * Extracts "To [NAME]" from SMS like "Sent Rs.25.00 From HDFC To ARUN SANJEEVA SHETTY"
+ */
+class RecipientExtractor {
+    // Patterns to extract recipient name after "To"
+    private val toPattern = Regex("""(?:\bto\s+|\bfor\s+)([A-Z][A-Z\s]{2,30})""")
+
+    fun extract(text: String): String? {
+        // Try "To NAME" pattern first
+        toPattern.find(text)?.let { match ->
+            val name = match.groupValues[1].trim()
+            // Filter out common non-name words
+            if (name.length > 2 && !name.contains("REF") && !name.contains("CALL")) {
+                return name
+            }
+        }
+
+        // Try alternative patterns
+        val altPattern = Regex("""(?:to|for)\s+([A-Za-z\s]+?)(?:\s+on|\s+ref|\s+call|\s+not|\s+\d{2}/\d{2})""", RegexOption.IGNORE_CASE)
+        altPattern.find(text)?.let { match ->
+            val name = match.groupValues[1].trim()
+            if (name.length > 2) return name
+        }
+
+        return null
+    }
+}
+
+/**
  * Handles debit/credit direction detection
  */
 class DirectionDetector {
-    // Pre-compiled patterns
     private val DEBIT_BY = Regex("""debited\s*by""", RegexOption.IGNORE_CASE)
     private val CREDITED_TO = Regex("""credited\s+to""", RegexOption.IGNORE_CASE)
     private val ACCOUNT_CREDITED = Regex("""(?:a/c|account|xxxx)\s+\w*\s*credited""", RegexOption.IGNORE_CASE)
@@ -191,10 +231,11 @@ class DirectionDetector {
 class ChannelDetector {
     private var channels: List<PaymentChannelEntity> = emptyList()
 
-    // Pre-compiled patterns
-    private val UPI_PATTERN = Regex("""(@ok|@[a-z0-9]|vpa|upi|gpay|phonepe|paytm|google\s*pay)""", RegexOption.IGNORE_CASE)
+    private val UPI_PATTERN = Regex("""(@ok|@[a-z0-9]|vpa|upi|upi\.|gpay|phonepe|paytm|google\s*pay)""", RegexOption.IGNORE_CASE)
     private val CARD_PATTERN = Regex("""(debit\s*card|credit\s*card|bank\s*card|xx[0-9]{4})""", RegexOption.IGNORE_CASE)
     private val NETBANK_PATTERN = Regex("""(netbanking|imps|neft|rtgs)""", RegexOption.IGNORE_CASE)
+    // Detect UPI transfers even without explicit "upi" keyword - "From X To Y" pattern
+    private val UPI_TRANSFER_PATTERN = Regex("""from\s+.*to\s+[a-zA-Z\s]+""", RegexOption.IGNORE_CASE)
 
     fun update(channels: List<PaymentChannelEntity>) {
         if (channels.isNotEmpty()) this.channels = channels
@@ -208,6 +249,8 @@ class ChannelDetector {
             CARD_PATTERN.containsMatchIn(norm) -> return "CARD"
             norm.contains("atm") || norm.contains("cash withdrawal") -> return "ATM"
             NETBANK_PATTERN.containsMatchIn(norm) -> return "NETBANKING"
+            // Check for UPI transfer pattern (From X To Y without explicit UPI keyword)
+            UPI_TRANSFER_PATTERN.containsMatchIn(norm) -> return "UPI"
         }
 
         for (channel in channels) {
@@ -227,13 +270,16 @@ class ChannelDetector {
 class MerchantMatcher {
     private var merchants: List<MerchantEntity> = emptyList()
     private var merchantLowerNames: List<String> = emptyList()
-    private var merchantAliases: List<Pair<String, String>> = emptyList() // alias, merchantName
+    private var merchantAliases: List<Pair<String, String>> = emptyList()
 
     fun update(merchants: List<MerchantEntity>) {
         this.merchants = merchants
         this.merchantLowerNames = merchants.map { it.name.lowercase() }
         this.merchantAliases = merchants.flatMap { m ->
-            m.aliases.split(",").map { alias -> alias.trim().lowercase() to m.name.lowercase() }
+            m.aliases.split(",")
+                .map { alias -> alias.trim().lowercase() }
+                .filter { it.isNotBlank() }
+                .map { alias -> alias to m.name.lowercase() }
         }
     }
 
@@ -242,12 +288,10 @@ class MerchantMatcher {
 
         val normalizedText = text.lowercase().replace(Regex("""\s+"""), " ")
 
-        // Check exact match on merchant names
         for ((index, lowerName) in merchantLowerNames.withIndex()) {
             if (lowerName in normalizedText) return merchants[index]
         }
 
-        // Check aliases
         for ((alias, merchantName) in merchantAliases) {
             if (alias in normalizedText) {
                 return merchants.find { it.name.lowercase() == merchantName }
@@ -262,7 +306,6 @@ class MerchantMatcher {
  * Handles skip pattern detection (OTP, non-transaction messages)
  */
 class SkipDetector {
-    // Pre-compiled skip patterns
     private val skipPatterns = listOf(
         Regex("""otp|one.?time.?password""", RegexOption.IGNORE_CASE),
         Regex("""secret|do not share|never share""", RegexOption.IGNORE_CASE),
@@ -287,14 +330,17 @@ class SkipDetector {
 }
 
 /**
+ * Transfer keywords - SINGLE SOURCE (was duplicated before)
+ */
+private val TRANSFER_KEYWORDS = listOf(
+    "self transfer", "own account", "fund transfer", "imps to self",
+    "neft to self", "to own", "own a/c"
+)
+
+/**
  * Determines transaction category based on various hints
  */
 class CategoryResolver {
-    private val transferKeywords = listOf(
-        "self transfer", "own account", "fund transfer", "imps to self",
-        "neft to self", "to own", "own a/c"
-    )
-
     private val categoryHints = mapOf(
         "Fuel" to listOf("fuel", "petrol", "bharat petroleum", "shell", "hpcl", "ioc"),
         "Utilities" to listOf("electric", "electricity", "bill", "dth", "gas", "water", "bsnl"),
@@ -308,6 +354,12 @@ class CategoryResolver {
         "Entertainment" to listOf("movie", "netflix", "hotstar", "spotify", "youtube")
     )
 
+    // Self transfer keywords - these are the ONLY cases where we categorize as Transfers
+    private val selfTransferKeywords = listOf(
+        "self transfer", "own account", "fund transfer", "imps to self",
+        "neft to self", "to own", "own a/c", "self", "your own"
+    )
+
     fun resolve(
         isTransfer: Boolean,
         merchant: MerchantEntity?,
@@ -315,26 +367,28 @@ class CategoryResolver {
         channel: String,
         direction: String
     ): String {
-        if (isTransfer || transferKeywords.any { text.lowercase().contains(it) }) return "Transfers"
+        val norm = text.lowercase()
+
+        // Only categorize as Transfers for SELF transfers, not all UPI payments
+        if (isTransfer || selfTransferKeywords.any { norm.contains(it) }) return "Transfers"
         merchant?.let { return it.category }
 
-        val norm = text.lowercase()
         for ((category, hints) in categoryHints) {
             if (hints.any { it in norm }) return category
         }
 
         return when {
-            channel == "UPI" && direction == "DEBIT" -> "Transfers"
             direction == "CREDIT" -> "Income"
-            else -> "Uncategorized"
+            else -> "UPI"  // Default UPI payments to UPI category
         }
     }
 }
 
 /**
  * Main Transaction Parser - orchestrates all extractors
+ * Uses thread-safe AtomicReference for mutable state to avoid race conditions
  */
-object TransactionParser {
+class TransactionParser private constructor() {
     private val amountExtractor = AmountExtractor()
     private val balanceExtractor = BalanceExtractor()
     private val accountDetector = AccountDetector()
@@ -343,18 +397,19 @@ object TransactionParser {
     private val merchantMatcher = MerchantMatcher()
     private val skipDetector = SkipDetector()
     private val categoryResolver = CategoryResolver()
+    private val recipientExtractor = RecipientExtractor()
 
-    private var merchants: List<MerchantEntity> = emptyList()
-    private var accounts: Map<String, AccountEntity> = emptyMap()
+    // Thread-safe references
+    private val merchantsRef = AtomicReference<List<MerchantEntity>>(emptyList())
+    private val accountsRef = AtomicReference<Map<String, AccountEntity>>(emptyMap())
 
     fun updateMerchants(newMerchants: List<MerchantEntity>) {
-        merchants = newMerchants ?: emptyList()
-        merchantMatcher.update(merchants)
+        merchantsRef.set(newMerchants)
+        merchantMatcher.update(newMerchants)
     }
 
     fun updateAccounts(newAccounts: List<AccountEntity>) {
-        accounts = newAccounts.filter { it.isActive }.associateBy { it.cardSuffix }
-        Log.d("TransactionParser", "Updated accounts: ${accounts.keys}, count=${accounts.size}")
+        accountsRef.set(newAccounts.filter { it.isActive }.associateBy { it.cardSuffix })
     }
 
     fun updatePaymentChannels(channels: List<PaymentChannelEntity>) {
@@ -368,30 +423,28 @@ object TransactionParser {
     )
 
     fun parse(text: String, receivedAt: Long, source: String = "SMS"): ParseResult? {
-        Log.d("TransactionParser", "Parsing: $text")
-
-        if (skipDetector.shouldSkip(text)) {
-            Log.d("TransactionParser", "Skipped: OTP/non-transaction")
-            return null
-        }
+        if (skipDetector.shouldSkip(text)) return null
 
         val norm = text.lowercase()
-        val amount = amountExtractor.extract(text, norm) ?: run {
-            Log.d("TransactionParser", "No amount found")
-            return null
-        }
+        val amount = amountExtractor.extract(text, norm) ?: return null
 
         val balance = balanceExtractor.extract(text, norm)
         val accountSuffix = accountDetector.detect(text)
         val direction = directionDetector.detect(text)
         val channel = channelDetector.detect(text)
         val merchant = merchantMatcher.find(text)
+
+        // If no merchant matched, try to extract recipient name from UPI transfers
+        var merchantName: String? = merchant?.name
+        if (merchantName == null && channel == "UPI") {
+            merchantName = recipientExtractor.extract(text)
+        }
+
+        val accounts = accountsRef.get()
         val accountId = accountSuffix?.let { accountDetector.matchToAccount(it, accounts) }
 
-        val isTransfer = transferKeywords.any { norm.contains(it) }
+        val isTransfer = TRANSFER_KEYWORDS.any { norm.contains(it) }
         val category = categoryResolver.resolve(isTransfer, merchant, text, channel, direction)
-
-        Log.d("TransactionParser", "Result: amt=$amount, dir=$direction, merchant=${merchant?.name}, acc=$accountSuffix (id=$accountId), bal=$balance")
 
         return ParseResult(
             transaction = TransactionEntity(
@@ -399,7 +452,7 @@ object TransactionParser {
                 source = source,
                 channel = channel,
                 direction = direction,
-                merchant = merchant?.name?.replaceFirstChar { it.uppercase() },
+                merchant = merchantName?.replaceFirstChar { it.uppercase() },
                 amount = amount,
                 accountHint = accountSuffix,
                 rawText = text,
@@ -412,7 +465,19 @@ object TransactionParser {
         )
     }
 
-    private val transferKeywords = listOf(
-        "self transfer", "own account", "fund transfer", "imps to self", "neft to self"
-    )
+    companion object {
+        @Volatile
+        private var INSTANCE: TransactionParser? = null
+
+        fun getInstance(): TransactionParser =
+            INSTANCE ?: synchronized(this) {
+                INSTANCE ?: TransactionParser().also { INSTANCE = it }
+            }
+
+        // Convenience methods for static-like access
+        fun updateMerchants(merchants: List<MerchantEntity>) = getInstance().updateMerchants(merchants)
+        fun updateAccounts(accounts: List<AccountEntity>) = getInstance().updateAccounts(accounts)
+        fun updatePaymentChannels(channels: List<PaymentChannelEntity>) = getInstance().updatePaymentChannels(channels)
+        fun parse(text: String, receivedAt: Long, source: String = "SMS") = getInstance().parse(text, receivedAt, source)
+    }
 }

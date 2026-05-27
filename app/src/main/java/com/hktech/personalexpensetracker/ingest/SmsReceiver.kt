@@ -9,59 +9,79 @@ import com.hktech.personalexpensetracker.data.AppDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * SMS BroadcastReceiver that processes incoming transaction SMS messages.
+ *
+ * Key design decisions:
+ * - Sequential processing to maintain insertion order
+ * - AtomicBoolean ensures only one batch processes at a time
+ * - Account refresh happens once per batch before processing
+ */
 class SmsReceiver : BroadcastReceiver() {
-    private val scope = CoroutineScope(Dispatchers.IO)
+    companion object {
+        private val isProcessing = AtomicBoolean(false)
+    }
 
     override fun onReceive(ctx: Context, intent: Intent) {
-        Log.d("SmsReceiver", "onReceive called with action: ${intent.action}")
-        if (Telephony.Sms.Intents.SMS_RECEIVED_ACTION != intent.action) {
-            Log.d("SmsReceiver", "Action mismatch, ignoring")
-            return
-        }
+        if (Telephony.Sms.Intents.SMS_RECEIVED_ACTION != intent.action) return
+        if (isProcessing.get()) return  // Skip if already processing a batch
 
-        val dao = AppDatabase.get(ctx).txnDao()
-        val accountDao = AppDatabase.get(ctx).accountDao()
+        val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
+        if (messages.isEmpty()) return
 
-        Log.d("SmsReceiver", "About to extract messages from intent")
-        Telephony.Sms.Intents.getMessagesFromIntent(intent).forEach { sms ->
-            val body = sms.messageBody ?: return@forEach
-            Log.d("SmsReceiver", "SMS body: $body")
-            Log.d("SmsReceiver", "Calling TransactionParser.parse...")
+        val appCtx = ctx.applicationContext
 
-            val result = TransactionParser.parse(body, sms.timestampMillis) ?: run {
-                Log.d("SmsReceiver", "TransactionParser returned null")
-                return@forEach
+        CoroutineScope(Dispatchers.IO).launch {
+            // Try to acquire processing lock
+            if (!isProcessing.compareAndSet(false, true)) return@launch
+
+            try {
+                processBatch(appCtx, messages.mapNotNull { sms ->
+                    sms.messageBody?.let { body -> body to sms.timestampMillis }
+                })
+            } finally {
+                isProcessing.set(false)
             }
+        }
+    }
 
-            Log.d("SmsReceiver", "Parse result: amount=${result.transaction.amount}, merchant=${result.transaction.merchant}, balance=${result.balance}")
+    private suspend fun processBatch(ctx: Context, messages: List<Pair<String, Long>>) {
+        if (messages.isEmpty()) return
 
-            scope.launch {
-                try {
-                    // Validate transaction before inserting
-                    if (result.transaction.amount <= 0) {
-                        Log.e("SmsReceiver", "Invalid amount: ${result.transaction.amount}, skipping")
-                        return@launch
+        val db = AppDatabase.get(ctx)
+        val dao = db.txnDao()
+        val accountDao = db.accountDao()
+        val merchantDao = db.merchantDao()
+        val channelDao = db.paymentChannelDao()
+
+        // Refresh all parser data ONCE per batch (needed if app wasn't launched yet)
+        val accounts = accountDao.getAllList()
+        val merchants = merchantDao.getAllList()
+        val channels = channelDao.getAllList()
+        TransactionParser.updateAccounts(accounts)
+        TransactionParser.updateMerchants(merchants)
+        TransactionParser.updatePaymentChannels(channels)
+
+        // Process sequentially - maintains insertion order
+        for ((text, timestamp) in messages) {
+            val result = TransactionParser.parse(text, timestamp) ?: continue
+
+            if (result.transaction.amount <= 0) continue
+
+            try {
+                dao.insert(result.transaction)
+
+                result.detectedAccountId?.let { accountId ->
+                    result.balance?.let { balance ->
+                        accountDao.updateBalance(accountId, balance)
                     }
-
-                    // Insert transaction
-                    dao.insert(result.transaction)
-                    Log.d("SmsReceiver", "Transaction inserted successfully: ${result.transaction.id}")
-
-                    // Update account balance if detected
-                    result.detectedAccountId?.let { accountId ->
-                        result.balance?.let { balance ->
-                            accountDao.updateBalance(accountId, balance)
-                            Log.d("SmsReceiver", "Updated account $accountId balance to: $balance")
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("SmsReceiver", "Error inserting transaction: ${e.message}", e)
-                    // Transaction was silently lost - in production, consider:
-                    // - Sending to a retry queue
-                    // - Showing notification to user
-                    // - Storing in local file for later recovery
                 }
+            } catch (e: Exception) {
+                Log.e("SmsReceiver", "Error inserting transaction: ${e.message}", e)
+                // Re-throw to avoid silent failures in production
+                throw e
             }
         }
     }

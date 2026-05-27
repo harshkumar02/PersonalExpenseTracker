@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hktech.personalexpensetracker.data.CategoryEntity
 import com.hktech.personalexpensetracker.data.MerchantEntity
@@ -29,75 +30,44 @@ import com.hktech.personalexpensetracker.ui.navigation.AppNav
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Defer expensive composable initialization
         setContent {
             PersonalexpensetrackerTheme {
-                App()
+                AppContent()
             }
         }
     }
 }
 
 @Composable
-private fun App() {
-    PermissionsGate {
-        val vm: MainViewModel = viewModel()
-        val txns by vm.txns.collectAsState(initial = emptyList<TransactionEntity>())
-        val categories by vm.categories.collectAsState(initial = emptyList<CategoryEntity>())
-        val merchants by vm.merchants.collectAsState(initial = emptyList<MerchantEntity>())
-        val accounts by vm.accounts.collectAsState(initial = emptyList())
-        val paymentChannels by vm.paymentChannels.collectAsState(initial = emptyList())
-
-        AppNav(
-            txns = txns,
-            categories = categories,
-            merchants = merchants,
-            accounts = accounts,
-            paymentChannels = paymentChannels,
-            onChangeCategory = { id: Long, cat: String -> vm.updateCategory(id, cat) },
-            onDeleteTransaction = { id: Long -> vm.deleteTransaction(id) },
-            onUpdateTransaction = { id, amount, direction, merchant, channel ->
-                vm.updateTransaction(id, amount, direction, merchant, channel)
-            },
-            onAddTransaction = { txn -> vm.addTransaction(txn) },
-            onAddCategory = { cat -> vm.addCategory(cat) },
-            onDeleteCategory = { name -> vm.deleteCategory(name) },
-            onAddMerchant = { m -> vm.addMerchant(m) },
-            onDeleteMerchant = { name -> vm.deleteMerchant(name) },
-            onAddAccount = { a -> vm.addAccount(a) },
-            onUpdateAccount = { a -> vm.updateAccount(a) },
-            onDeleteAccount = { id -> vm.deleteAccount(id) },
-            onAddPaymentChannel = { c -> vm.addPaymentChannel(c) },
-            onDeletePaymentChannel = { code -> vm.deletePaymentChannel(code) }
-        )
-    }
-}
-
-@Composable
-fun PermissionsGate(content: @Composable () -> Unit) {
-    var granted by remember { mutableStateOf(false) }
+private fun AppContent() {
+    var hasPermissions by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions: Map<String, Boolean> ->
-        granted = listOf(
-            Manifest.permission.RECEIVE_SMS,
-            Manifest.permission.READ_SMS
-        ).all { permissions[it] == true }
+    // Check permissions synchronously on first composition
+    LaunchedEffect(Unit) {
+        hasPermissions = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECEIVE_SMS
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
     }
 
-    LaunchedEffect(Unit) {
-        launcher.launch(
-            arrayOf(
+    if (!hasPermissions) {
+        // Request permissions
+        val launcher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { permissions ->
+            hasPermissions = permissions[Manifest.permission.RECEIVE_SMS] == true &&
+                    permissions[Manifest.permission.READ_SMS] == true
+        }
+
+        LaunchedEffect(Unit) {
+            launcher.launch(arrayOf(
                 Manifest.permission.RECEIVE_SMS,
                 Manifest.permission.READ_SMS
-            )
-        )
-    }
+            ))
+        }
 
-    if (granted) {
-        content()
-    } else {
         PermissionDeniedScreen(
             onOpenSettings = {
                 val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -106,7 +76,55 @@ fun PermissionsGate(content: @Composable () -> Unit) {
                 context.startActivity(intent)
             }
         )
+    } else {
+        // Deferred content - loads after permissions confirmed
+        DeferredMainContent()
     }
+}
+
+@Composable
+private fun DeferredMainContent() {
+    // ViewModel created here - only when actually needed
+    val vm: MainViewModel = viewModel()
+    val txns by vm.txns.collectAsState(initial = emptyList<TransactionEntity>())
+    val categories by vm.categories.collectAsState(initial = emptyList<CategoryEntity>())
+    val merchants by vm.merchants.collectAsState(initial = emptyList<MerchantEntity>())
+    val accounts by vm.accounts.collectAsState(initial = emptyList())
+    val paymentChannels by vm.paymentChannels.collectAsState(initial = emptyList())
+
+    AppNav(
+        txns = txns,
+        categories = categories,
+        merchants = merchants,
+        accounts = accounts,
+        paymentChannels = paymentChannels,
+        onChangeCategory = { id: Long, cat: String -> vm.updateCategory(id, cat) },
+        onDeleteTransaction = { id: Long -> vm.deleteTransaction(id) },
+        onUpdateTransaction = { id, amount, direction, merchant, channel ->
+            vm.updateTransaction(id, amount, direction, merchant, channel)
+        },
+        onAddTransaction = { txn -> vm.addTransaction(txn) },
+        onAddCategory = { cat -> vm.addCategory(cat) },
+        onUpdateCategory = { cat -> vm.updateCategory(cat) },
+        onDeleteCategory = { name -> vm.deleteCategory(name) },
+        onAddMerchant = { m -> vm.addMerchant(m) },
+        onDeleteMerchant = { name -> vm.deleteMerchant(name) },
+        onAddAccount = { a -> vm.addAccount(a) },
+        onUpdateAccount = { a -> vm.updateAccount(a) },
+        onDeleteAccount = { id -> vm.deleteAccount(id) },
+        onAddPaymentChannel = { c -> vm.addPaymentChannel(c) },
+        onDeletePaymentChannel = { code -> vm.deletePaymentChannel(code) }
+    )
+}
+
+@Composable
+private fun App() {
+    AppContent()
+}
+
+@Composable
+fun PermissionsGate(content: @Composable () -> Unit) {
+    content()
 }
 
 @Composable

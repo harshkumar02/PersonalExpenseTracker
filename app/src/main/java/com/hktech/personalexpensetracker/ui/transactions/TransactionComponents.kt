@@ -91,7 +91,10 @@ fun TransactionCard(
     val isCredit = transaction.direction == "CREDIT"
     val backgroundColor = if (isCredit) CreditGreen else DebitRed
     val textColor = if (isCredit) CreditGreenText else DebitRedText
-    val categoryColor = safeCategoryColor(transaction.category)
+    // Use custom color for custom categories, default color for built-in ones
+    val categoryColor = categories.find { it.name == transaction.category }?.let { cat ->
+        if (cat.name in CategoryColors) safeCategoryColor(cat.name) else safeParseColor(cat.color)
+    } ?: safeCategoryColor(transaction.category)
 
     val accountName = transaction.accountId?.let { accId ->
         accounts.find { it.id == accId }?.let {
@@ -316,37 +319,29 @@ fun CategorySelectionDialog(
     onCategorySelected: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val categoryNames = remember(categories) {
-        categories.map { it.name }.ifEmpty {
-            listOf("Food", "Groceries", "Transport", "Shopping", "Utilities", "Uncategorized")
-        }
-    }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Select Category") },
         text = {
             Column {
-                categoryNames.forEach { category ->
-                    val isSelected = category == currentCategory
+                categories.forEach { category ->
+                    val isSelected = category.name == currentCategory
+                    val displayColor = if (category.name in CategoryColors) safeCategoryColor(category.name) else safeParseColor(category.color)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onCategorySelected(category) }
+                            .clickable { onCategorySelected(category.name) }
                             .padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
                                 .size(12.dp)
-                                .background(
-                                    safeCategoryColor(category),
-                                    RoundedCornerShape(6.dp)
-                                )
+                                .background(displayColor, RoundedCornerShape(6.dp))
                         )
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            text = category,
+                            text = category.name,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                             modifier = Modifier.weight(1f)
                         )

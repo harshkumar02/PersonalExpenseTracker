@@ -39,6 +39,7 @@ fun AddTransactionFab(
     onAddTransaction: (TransactionEntity) -> Unit,
     categories: List<CategoryEntity>,
     onAddCategory: (CategoryEntity) -> Unit,
+    onUpdateCategory: (CategoryEntity) -> Unit,
     onDeleteCategory: (String) -> Unit,
     merchants: List<MerchantEntity>,
     onAddMerchant: (MerchantEntity) -> Unit,
@@ -56,6 +57,7 @@ fun AddTransactionFab(
     var showMerchantManagement by remember { mutableStateOf(false) }
     var showTestParser by remember { mutableStateOf(false) }
     var showChannelManagement by remember { mutableStateOf(false) }
+    var showQuickAdd by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -64,6 +66,16 @@ fun AddTransactionFab(
         Column(
             horizontalAlignment = Alignment.Start
         ) {
+            SmallFloatingActionButton(
+                onClick = { showQuickAdd = true },
+                modifier = Modifier.padding(start = 24.dp, bottom = 8.dp),
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Bolt,
+                    contentDescription = "Quick Add"
+                )
+            }
             SmallFloatingActionButton(
                 onClick = { showTestParser = true },
                 modifier = Modifier.padding(start = 24.dp, bottom = 8.dp),
@@ -87,6 +99,16 @@ fun AddTransactionFab(
         }
     }
 
+    if (showQuickAdd) {
+        QuickAddDialog(
+            onDismiss = { showQuickAdd = false },
+            onSave = { txn ->
+                onAddTransaction(txn)
+                showQuickAdd = false
+            }
+        )
+    }
+
     if (showDialog) {
         AddTransactionDialog(
             categories = categories,
@@ -107,6 +129,7 @@ fun AddTransactionFab(
         CategoryManagementDialog(
             categories = categories,
             onAddCategory = onAddCategory,
+            onUpdateCategory = onUpdateCategory,
             onDeleteCategory = onDeleteCategory,
             onDismiss = { showCategoryManagement = false }
         )
@@ -361,7 +384,7 @@ fun PaymentChannelManagementDialog(
             ) {
                 Text("Payment Channels", fontWeight = FontWeight.Bold)
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Settings, contentDescription = "Close")
+                    Icon(Icons.Default.Close, contentDescription = "Close")
                 }
             }
         },

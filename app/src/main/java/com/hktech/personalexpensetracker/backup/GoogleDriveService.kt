@@ -187,12 +187,20 @@ class GoogleDriveService(private val context: Context) {
         }
     }
 
-    private fun getAccessTokenFromAccount(account: GoogleSignInAccount): String? {
+    private suspend fun getAccessTokenFromAccount(account: GoogleSignInAccount): String? {
         return try {
-            val method = account.javaClass.getMethod("getAccessToken")
-            method.invoke(account) as? String
+            // Try the newer API first (GoogleSignInAccountExtension)
+            val extensionMethod = account.javaClass.getMethod("getAccessToken")
+            val result = extensionMethod.invoke(account)
+            if (result is String) return result
+
+            // Fallback to Task-based approach
+            val taskMethod = account.javaClass.getMethod("getIdToken")
+            @Suppress("UNCHECKED_CAST")
+            val task = taskMethod.invoke(account) as? com.google.android.gms.tasks.Task<String>
+            if (task != null) Tasks.await(task) else null
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to get access token", e)
+            Log.e(TAG, "Failed to get access token via reflection: ${e.message}", e)
             null
         }
     }
